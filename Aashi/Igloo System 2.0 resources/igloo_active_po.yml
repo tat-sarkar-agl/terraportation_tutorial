@@ -1,0 +1,388 @@
+Screen Description: get active all pejding POs with column names(presnet in the View) with edit button in each row and hyperlink to shipper and supplier to open separate datagrid as popup
+
+Additonal Functionalities(Actions): 
+    1. Edit button in each row
+    2. Hyperlinks to Shipper info table as popup
+    3. Hyperlinks to Supplier info table as popup
+
+NOTE(Questions): 
+    1. Commented column names in Views that are not presnet in table DDL
+    2. naming convention of view column using pound(#) signs()
+
+Plan(General): |
+    1. Create the view, from which data will be used in the screens and also add action functionalities like edit/submit/etc
+    2. Check if there is an existing datagroup for the data in View 
+        If exists: then use that and note the datagroup ID for further steps
+        If not exists: then create a datagroup 
+    3. Skip this step if datagroup already created(see the datagroup coulmns using the datagroup ID form step 2), if not continue:
+        Create the datagroup columns for all the data columns presnet in view and use the datagroup id that you created in step 2
+    4. Check to see if we want to add this to an existing workflow or create a new one 
+        if add to an existing workflow: Note the workflow ID
+        if not: create a new workflow
+    5. map datagroup to workflow
+    6. Creating a WorkflowStep(in this case ther will be just 2, one for main datagrid and other for the form of edit)
+      6.a. If the workflow step is a datagrid then populate (else, skip this step) : 
+              select * from oceanbridgeworkflow.workflow.datagrid
+      6.b. If the workflow is a form or search then populate :
+              select * from oceanbridgeworkflow.workflow.datagridcolumn  --> This where datagroup column ids go if it is a datagrid not in the workflowstepcolumn 
+    7. For workflowstep column, if it is a datagrid screen, put the datagrid id in the content_id. So, only one entry. 
+        if its a form(like edit for, where data input will be necesaaryby user), the use datagridcolumnid as content_ids here(the no of ekemnet in forms that many content_ids)
+
+Plan(Edit Functionality):
+    1. View will be same as the parent workflow, since data just needs to be modified - add edit_button in view with a "columneditortypeid"
+    2. datagroup will be same - nothing to be done
+    3. datagroupcolumns - for something like edit, it will have a "columneditortypeid"
+    4. it will be presnet in same workflow - nothing to be done
+    5. mapping datagroup to workflow - nothing to be done
+    6. datagrid will be same - 
+    7. create a new workflowstep for this functionity(this will have a form structure, so datagridcolumns are needed)
+    8. Create a new navigation id w.r.t to the workflowstep id created in step 7, use that below
+    9. datagridcolumns - make sure the edit row has its column editortyope and navigation id(from step 8) and note datagridcolumn ids to be used as content_ids in step 10
+    10. creating workflowstepcolumns - content_ids will be datagridcolumn ids and submit button will have the datagroupcolumnid as content_id, and an action_id
+
+-- workflowstepgroup()
+-- access 
+      
+
+Execution of view only datagrid:
+    1. Create a view: 
+        CREATE VIEW [view_test].[active_po_view_ag] AS
+        SELECT 
+        -- Original columns from the previous view
+        o.id AS AGL_order_id,  -- UUID from the order table
+      -- o.issued_date AS PO_Date,  -- this shou
+        e_customer.entity_name AS Customer_Name,  -- Customer Name from the entity table
+        LEFT('ASI_Igloo' + RIGHT(CONVERT(VARCHAR(50), e_customer.id), 8), 17) AS Customer_8char_id,  -- Generated Customer 8-char ID
+      -- ev.event_date AS Cargo_Ready_Date,  -- Assuming event_date for Cargo Ready Date
+      --  ev.event_date AS Promised_Date,  -- Assuming event_date for Promised Date
+        e_supplier.entity_name AS Supplier_Name,  -- Supplier Name from entity
+        e_shipper.entity_name AS Shipper_Name,  -- Shipper Name from entity
+        e_consignee.entity_name AS Consignee_Name,  -- Consignee Name from entity
+        LEFT('Igloo_consignee' + RIGHT(CONVERT(VARCHAR(50), e_consignee.id), 8), 23) AS Consignee_8char_id,  -- Generated Consignee 8-char ID
+        dc_payment_terms.data_choice_name AS Payment_Terms,  -- Payment Terms from data_choice table
+        fb.tmsaw_id AS Shipping_Carrier,  -- Shipping Carrier from freight_booking table
+        dc_freight_terms.data_choice_name AS Freight_Term,  -- Freight Term from data_choice table
+        dc_status.data_choice_name AS Status,  -- Status from data_choice table
+        '' AS submit_button,  -- Placeholder for submit button
+        '' AS edit_button,  -- Placeholder for edit button --- 
+
+          -- Newly added primary keys (UUIDs)
+        e_customer.id AS Customer_ID,  -- Primary key (UUID) for customer entity
+      --  ev.id AS Event_ID,  -- Primary key (UUID) for event table
+        dc_payment_terms.id AS Payment_Terms_ID,  -- Primary key (UUID) for payment terms in data_choice
+        fb.id AS Freight_Booking_ID  -- Primary key (UUID) for freight booking
+       FROM oceanbridge.ops.[order] o
+        LEFT JOIN oceanbridge.ops.entity e_customer ON o.order_issued_to_id = e_customer.id  -- Using order_issued_to_id as the customer
+      --  LEFT JOIN oceanbridge.ops.event ev ON ev.reference_row_id = o.id  -- Assuming event table based on order
+        LEFT JOIN oceanbridge.ops.entity e_supplier ON o.order_issued_by_id = e_supplier.id  -- Supplier based on order_issued_by_id
+        LEFT JOIN oceanbridge.ops.entity e_shipper ON o.order_recipient_id = e_shipper.id  -- Shipper based on order_recipient_id
+        LEFT JOIN oceanbridge.ops.entity e_consignee ON o.order_recipient_id = e_consignee.id  -- Consignee based on order_recipient_id
+        LEFT JOIN oceanbridge.choice.data_choice dc_payment_terms ON dc_payment_terms.id = o.payment_term_choice  -- Payment terms
+        LEFT JOIN oceanbridge.ops.freight_booking fb ON fb.consignee_id = o.order_recipient_id  -- Freight booking based on consignee
+        LEFT JOIN oceanbridge.choice.data_choice dc_freight_terms ON dc_freight_terms.id = o.inco_term_choice
+        LEFT JOIN oceanbridge.choice.data_choice dc_status ON dc_status.id = o.approval_status_choice;
+        
+
+      To look at the view data:
+      SELECT *
+      FROM oceanbridge.view_test.active_po_view_ag;
+
+
+
+    2. Create the datagroup:
+        insert into [oceanbridgeworkflow].workflow.datagroup
+        (datagroupid        ,  datagroupname         ,  View_SQL                      , DBname        , is_dummy)
+        values (newid()     , 'dummy_active_po', 'view_test.active_po_view_ag' , 'oceanbridge' , 1)
+
+        select * from [oceanbridgeworkflow].workflow.datagroup where DataGroupID ='7371D865-B254-4B1F-9CEA-719BE5E6D01A';
+    
+    3. Create the datagroup columns:
+        INSERT INTO [oceanbridgeworkflow].workflow.DataGroupColumn (
+            DataGroupColumnID,		    DataGroupID,    
+            ColumnName,					DisplayName,
+            TableName,					TableColumnName,		TableKeyColumnName,
+            ViewKeyColumnName,			width,					ColumnDescription,
+            
+            IsKeyField,					IsVisible,				IsEditable,
+            SortOrder, ColumnEditorTypeID,  EventID,
+            DDLType,  IsVisibleGrid, IsEditableGrid, IsQueryByColumn,
+            IsVisibleHeader, DLLParent_DataGroupColumnID, IsParentColumn, DefaultValue, IsRequired,
+            IsVisibleWhenParent, ColumnReadonlyTypeId, MaxInputLength, LookupObjectName, LookupColumnName,
+            LookupKeyColumnName, IsRollup, ShowForUserReporting
+        ) VALUES 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'agl_order_id',			'Agl_Order_Id',
+            'ops.order',		'id',			'id',  
+            'agl_order_id',			50,						'AGL Order id',
+            1,					0,				0, 
+            0,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        /* 
+        (
+            newid(),		    '930A8D83-374C-4DA3-B7C2-F4740F5F6C92',
+            'Customer_Name',			'Customer Name',
+            '[ops].[entity]',		'entity_name',			'id',  
+            'Customer_Name',			50,						'Customer Name',
+            1,					1,				1, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), */
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Customer_8char_id',			'customer id',
+            '[ops].[order]',		'id',			'id',  
+            'Customer_8char_id',			50,						'Customer ID',
+            0,					0,				0, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        /*
+        (
+            newid(),		    '930A8D83-374C-4DA3-B7C2-F4740F5F6C92',
+            'Cargo_Ready_Date',			'Cargo Ready Date',
+            '[ops].[event]',		'event_date',			'id',  
+            'Cargo_Ready_Date',			50,						'Cargo Ready Date',
+            1,					0,				0, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), */
+        /*(
+            newid(),		    '930A8D83-374C-4DA3-B7C2-F4740F5F6C92',
+            'Promised_Date',			'Promised Date',
+            '[ops].[event]',		'event_date',			'id',  
+            'Promised_Date',			50,						'Promised Date',
+            0,					0,				0, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), */ 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Supplier_Name',			'Supplier Name',
+            '[ops].[entity]',		'entity_name',			'id',  
+            'Supplier_Name',			50,						'Supplier name',
+            1,					1,				1, 
+            NULL,  '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4', NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ),
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Shipper_Name',			'Shipper Name',
+            '[ops].[entity]',		'entity_name',			'id',  
+            'Shipper_Name',			50,						'Shipper Name',
+            1,					1,				1, 
+            NULL,  '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4', NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Consignee_Name',			'Consignee Name',
+            '[ops].[entity]',		'entity_name',			'id',  
+            'Consignee_Name',			50,						'Consignee Name',
+            1,					1,				1, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Consignee_8char_id',			'Consignee Id',
+            '[ops].[entity]',		'id',			'id',  
+            'Consignee_8char_id',			50,						'Consignee id',
+            0,					1,				1, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Payment_Terms',			'Payment Terms',
+            'choice.data_choice',		'data_choice_name',			'id',  
+            'Payment_Terms',			50,						'Paymnet terms choice',
+            0,					1,				1, 
+            NULL,  NULL, NULL,
+            'payment_term_choice',  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Shipping_Carrier',			'Shipping Carrier',
+            'ops.freight_booking',		'shipline',			'id',  
+            'Shipping_Carrier',			50,						'shipping carrier',
+            0,					1,				0, 
+            NULL,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Freight_Term',			'Freight Terms',
+            'choice.data_choice',		'data_choice_name',			'id',  
+            'Freight_Term',			50,						'Paymnet terms choice',
+            0,					1,				0, 
+            NULL,  NULL, NULL,
+            'freight terms',  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'Status',			'Status',
+            'choice.data_choice',		'data_choice_name',			'id',  
+            'status',			50,						'Paymnet terms choice',
+            0,					1,				0, 
+            NULL,  NULL, NULL,
+            'status',  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'edit_button',			'Edit',
+            NULL,		NULL,			NULL,  
+            'status',			50,						'Edit button',
+            0,					1,				0, 
+            1,  '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4', NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        ), 
+        (
+            newid(),		    '7371D865-B254-4B1F-9CEA-719BE5E6D01A',
+            'submit_button',			'Submit',
+            NULL,		NULL,			NULL,  
+            'NULL',			50,						'submit button',
+            0,					1,				0, 
+            0,  NULL, NULL,
+            NULL,  0, 0, 0,
+            0, NULL, 0, NULL, 0,
+            0, NULL, 0, NULL, NULL,
+            NULL, 0, 0
+        );
+
+
+        select * from [oceanbridgeworkflow].workflow.DataGroupColumn dgc where DataGroupID ='7371D865-B254-4B1F-9CEA-719BE5E6D01A';
+    4.Creating workflow:
+        INSERT INTO oceanbridgeworkflow.workflow.Workflow
+        (WorkflowID, WorkflowTypeID, WorkflowName, VersionNumber, VersionAsOfDate, Comment, RecStatus, DBName)
+        VALUES(newid(), '2A938388-7BA4-439C-94BF-EB8486EBD798', 'dummy_pending_po_AG', 1, getdate(), 'Test Workflow by Aashi', 'B', 'oceanbridgeworkflow');
+
+        select * from oceanbridgeworkflow.workflow.Workflow w where WorkflowID ='586EDE7D-DB94-490E-AE35-4C3B5D5ABD7C';
+
+    5.map all datagroup to workflow:
+        INSERT INTO oceanbridgeworkflow.workflow.workflow_data_group
+        (workflow_data_group_id, workflow_id, data_group_id)
+        VALUES(newid(), '586EDE7D-DB94-490E-AE35-4C3B5D5ABD7C', '7371D865-B254-4B1F-9CEA-719BE5E6D01A');
+        
+    6.Create workflowstep for main datagrid :
+        INSERT INTO oceanbridgeworkflow.workflow.WorkflowStep
+        (WorkflowStepID, WorkflowID, WorkflowStepGroupSortOrder, Note, CompanyTypeID, StepName, WorkflowStepTypeID, DataGroupColumnID_QueryBy, DataGroupColumnID_Header, datagroupid, ManualControllerName, ManualViewName, RecStatus, DataGroupColumnID_Parent, BySessionID, DataGroupMaintenanceID, ByParm, Parm1, Parm2, Parm3, CalculateCount, StepAccessRequired, ApplyToAll, div_list_json)
+        VALUES
+        (newid(), '586EDE7D-DB94-490E-AE35-4C3B5D5ABD7C', 1, 'Dummy Workflowstep to view all pending POs', '23C75EC2-F9A9-4C41-9F49-EE7400CBE9C9', 'All POs', 'F69FBE0F-D3E6-4D97-B524-005CEB1EED7B', NULL, NULL, '7371D865-B254-4B1F-9CEA-719BE5E6D01A', NULL, NULL, 'A', NULL, 0, NULL, NULL, NULL, NULL, NULL, 1, 0, 0, NULL);
+
+
+        select * from oceanbridgeworkflow.workflow.WorkflowStep ws where WorkflowStepID ='05BB2A1F-5695-4F8B-8A9C-7116CAD449C7'
+
+    
+we have to display a datagrid on frontend, then content_id in workflostepcolumn will be datagrid id only 
+therefore, make datagrid first
+
+    7.create datagrid: 
+        INSERT INTO oceanbridgeworkflow.workflow.DataGrid
+        (DataGridID, DatagroupID,                              HasRowSelectionCheckBox, FilterForWorkflowState, View_SQL,                                           Note,                                         User_SQL, FilterByColumnName, IncludeCommentsField, IncludeDeleted, OrderBy_SQL, LimitRowCount, RequireFilter)
+        VALUES(newid(), '7371D865-B254-4B1F-9CEA-719BE5E6D01A', 1,                        0,                    'from [view_test].[active_po_view_ag] where (1=1)', 'Dummy datagrid to view Active POs by Aashi', NULL,        NULL,               0,                 0,                NULL, 0, 0);
+
+        select * from oceanbridgeworkflow.workflow.DataGrid dg where DataGridID ='55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F';
+    8. create datagrid column:
+        INSERT INTO oceanbridgeworkflow.workflow.DataGridColumn
+        (DataGridColumnID, DataGridID,                           DataGroupColumnID,                     Width, IsEditable, IsNullable, IsRequired, ColumnEditorTypeID,                               sortorder, align, NavigationID, IsVisible, StyleTemplate, BackgroundColor, notes, ShowElipses, IsAdditional, IsFrozen, DDLName, DDLDependsOn_DataGridColumnID)
+        VALUES(newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '146B4F35-A531-4B9F-802B-00250F80181A', 50,  1,          0,          NULL,       'A96FCF4B-3DCA-4DB1-B475-E09DFADF4E7E',                10,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     'payment_term_choice', NULL),
+        --VALUES(newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '5469395B-6D29-4706-808E-2183F1E9178E', 50,  0,          0,          NULL,       NULL,                                                 1,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', 'ECAF293F-440D-49C5-BA40-3242F445B1B5', 50,  0,          0,          NULL,       '46A628F6-BFFC-4C18-B452-A9BB4EF015CC',                2,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '7EED65C2-3AB2-47AB-B1CC-537E28BA4386', 50,  1,          0,          NULL,       '46A628F6-BFFC-4C18-B452-A9BB4EF015CC',                3,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', 'D47E5017-B197-41FD-B190-76A2D3BD3944', 50,  1,          0,          NULL,       '46A628F6-BFFC-4C18-B452-A9BB4EF015CC',                4,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     'freight terms', NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '8D626B3F-8052-4BB4-B6BB-91AE2CC14097', 50,  1,          0,          NULL,       'A96FCF4B-3DCA-4DB1-B475-E09DFADF4E7E',                5,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     'status', NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '7F72C00A-ECCB-4059-A210-AA57DCCE1867', 50,  0,          0,          NULL,       '46A628F6-BFFC-4C18-B452-A9BB4EF015CC',                6,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '7B8DBCE7-E0FD-4D3C-BB64-C7A710784FB3', 50,  1,          0,          NULL,       '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4',                7,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', 'FE723FAA-AE18-494D-87CA-C832478A4F27', 50,  1,          0,          NULL,       '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4',                8,       NULL,    '91D0EF02-7A6C-476E-A965-0600E6DBB865',       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '169AD7BA-CF42-4100-BDD9-D0456AE359FF', 50,  1,          0,          NULL,       '46A628F6-BFFC-4C18-B452-A9BB4EF015CC',                9,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        --VALUES(newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', 'C689DEC1-9EC3-4BCC-9388-D329EDBC95A3', 50,  1,          0,          NULL,       NULL,                                                11,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL),
+        (newid(),   '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', '78A7D044-8197-426B-B3D8-FF546F1CC7C0', 50,  1,          0,          NULL,       '4E65EA68-89DA-466B-A7B7-C4D4E45BE5E4',                12,       NULL,    NULL,       1,         NULL,           NULL,           '',      NULL,    NULL,           NULL,     NULL, NULL);
+
+        select * from oceanbridgeworkflow.workflow.DataGridColumn dgc where DataGridID ='55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F';
+to connect the suuplier name and shipper name to open in a different pop up, 
+we will need to craete a separte navigation id and diff workflow
+
+    9. create workflowstep column:
+        INSERT INTO oceanbridgeworkflow.workflow.workflowstepcolumn
+        (workflow_step_column_id, workflow_step_id, content_id, data_type_choice_id, field_label, is_hidden, is_editable, max_length, is_required, navigation_workflow_step_id, action_id)
+        VALUES(newid(), '05BB2A1F-5695-4F8B-8A9C-7116CAD449C7', '55EE9567-6E91-4C7B-8561-F2A6CC3B8A0F', 'A362DF70-2105-4045-955C-B017BFFDE48D', null, 0, 1, null, 0, null, null);
+
+        select * from oceanbridgeworkflow.workflow.workflowstepcolumn w where workflow_step_id ='05BB2A1F-5695-4F8B-8A9C-7116CAD449C7';
+
+
+Execution of Form for Edit functionality:
+    1.create a workflowstep:
+        INSERT INTO oceanbridgeworkflow.workflow.WorkflowStep
+        (WorkflowStepID, WorkflowID, WorkflowStepGroupSortOrder, Note, CompanyTypeID, StepName, WorkflowStepTypeID, DataGroupColumnID_QueryBy, DataGroupColumnID_Header, datagroupid, ManualControllerName, ManualViewName, RecStatus, DataGroupColumnID_Parent, BySessionID, DataGroupMaintenanceID, ByParm, Parm1, Parm2, Parm3, CalculateCount, StepAccessRequired, ApplyToAll, div_list_json)
+        VALUES
+        (newid(), '586EDE7D-DB94-490E-AE35-4C3B5D5ABD7C', 1, 'Dummy Workflowstep to edit all pending POs', '23C75EC2-F9A9-4C41-9F49-EE7400CBE9C9', 'All POs', 'F69FBE0F-D3E6-4D97-B524-005CEB1EED7B', NULL, NULL, '7371D865-B254-4B1F-9CEA-719BE5E6D01A', NULL, NULL, 'A', NULL, 0, NULL, NULL, NULL, NULL, NULL, 1, 0, 0, NULL);
+
+        select * from oceanbridgeworkflow.workflow.WorkflowStep ws where WorkflowStepID ='2C63FDA2-5D28-42FE-8600-A1568465B3D1';
+
+    2.Create a new Navigation Id:
+        INSERT INTO oceanbridgeworkflow.workflow.Navigation
+        (NavigationID, NavigationTypeID,                          Label, WorkflowStepID,                                        AppendKeyValue, AppendParentKeyValue, AppendColumnKeyValue, AsPopup, Parm1, Parm2, Parm3, Parm4, ClonedWorkflowStepID, ParentKey_DataGroupColumnID, DataGroupColumnID_QueryBy, DDLType, AppendSelectedRowKeyValue, DocumentID, IsMultiRow, PrintPopupPath, Note, AppendCustomKeyValue, IsHover)
+        VALUES(newid(), 'choose from table herenavigationTypeID', 'Edit', 'from above step:2C63FDA2-5D28-42FE-8600-A1568465B3D1', 1,                0,                  0,                    1,      NULL,     NULL,     NULL,  NULL,      NULL,                NULL,                           NULL,                         NULL,          0,                      NULL,      0,             NULL,            NULL,           NULL,       0);
+
+
+    3.create workflostepcolumn to edit:
+        INSERT INTO oceanbridgeworkflow.workflow.workflowstepcolumn
+        (workflow_step_column_id, workflow_step_id,              content_id,                           data_type_choice_id,                  field_label, is_hidden, is_editable, max_length, is_required, navigation_workflow_step_id, action_id)
+        VALUES(newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '177B84FD-9E01-414B-8A98-0A0A8D2AEFBA', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Payment Term',      0,         1,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '5AC44737-7C2A-42AE-9D72-6AD88606629D', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Consignee ID',      0,         0,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '439FE108-F3A9-447E-8942-F4D9CED8A6CF', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Shipping Carrier',      0,         1,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', 'FB24E3DA-91EA-438E-8DCC-A15EB795A575', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Freight Terms',      0,         1,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '903A42CC-2A93-4D48-A9A4-2C673E1B815C', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Status',      0,         1,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', 'F1D93632-8DBC-45E1-B386-B9AA6585719C', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Customer ID',      0,         0,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '65B01B44-B178-4E3D-9FFB-29C394E43BCD', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Supplier Name',      0,         0,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', 'D0B5ED7D-CD64-4DFD-99F2-6C47334B1C8F', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Consignee Name',      0,         0,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', '785F2DAD-977C-4F43-B50A-DBDC7FE5516B', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Shipper Name',      0,         0,          null,        1,           null,                         null),
+        (newid(), '2C63FDA2-5D28-42FE-8600-A1568465B3D1', 'C689DEC1-9EC3-4BCC-9388-D329EDBC95A3', 'A362DF70-2105-4045-955C-B017BFFDE48D', 'Submit',      0,         0,          null,        0,           null,                         '75C08424-B53D-4688-A03D-702EE9C86048');
+
+-- here for submit button: content_id is the datagroupcolumnid
+
+

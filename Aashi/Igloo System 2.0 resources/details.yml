@@ -1,0 +1,10 @@
+# Functional Specification Overview (YAML)
+
+project_name: "Ocean Freight Management System"
+version: "1.0"
+description: "Collect functional specifications for workflows in ocean freight business."
+
+workflows:
+  - name: "Purchase Order Management"
+    purpose: "Manage orders from shippers and track shipment status."
+    documentation: "/Users/aashigoyal/Desktop/vscode/aashimain/agl/Template/purchase-order-workflow.md"  # Link to a Markdown file
